@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+/*
+ * FirstCV Design System
+ * Claude-inspired warm editorial palette + CJK serif headlines.
+ * Every gray has a yellow-brown undertone. Terracotta is the only chromatic accent.
+ */
+
+:root {
+  /* Surface */
+  --color-parchment: #f5f4ed;
+  --color-ivory: #faf9f5;
+  --color-white: #ffffff;
+  --color-warm-sand: #e8e6dc;
+  --color-dark-surface: #30302e;
+  --color-deep-dark: #141413;
+
+  /* Brand */
+  --color-terracotta: #c96442;
+  --color-coral: #d97757;
+  --color-dark-green: #163300;
+
+  /* Text */
+  --color-near-black: #141413;
+  --color-dark-warm: #3d3d3a;
+  --color-charcoal-warm: #4d4c48;
+  --color-olive-gray: #5e5d59;
+  --color-stone-gray: #87867f;
+  --color-warm-silver: #b0aea5;
+
+  /* Borders & rings */
+  --color-border-cream: #f0eee6;
+  --color-border-warm: #e8e6dc;
+  --color-border-dark: #30302e;
+  --color-ring-warm: #d1cfc5;
+
+  /* Semantic */
+  --color-error: #b53333;
+  --color-focus: #3898ec;
+
+  /* Fonts (loaded in layout.tsx via next/font) */
+  --font-serif: var(--font-serif, "Noto Serif SC", "Songti SC", "Source Han Serif SC", Georgia, serif);
+  --font-sans: var(--font-sans, "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif);
+  --font-mono: var(--font-mono, ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace);
+}
+
+@theme inline {
+  /* Map CSS vars → Tailwind v4 tokens so utility classes work */
+  --color-parchment: var(--color-parchment);
+  --color-ivory: var(--color-ivory);
+  --color-warm-sand: var(--color-warm-sand);
+  --color-dark-surface: var(--color-dark-surface);
+  --color-deep-dark: var(--color-deep-dark);
+
+  --color-terracotta: var(--color-terracotta);
+  --color-coral: var(--color-coral);
+
+  --color-near-black: var(--color-near-black);
+  --color-dark-warm: var(--color-dark-warm);
+  --color-charcoal-warm: var(--color-charcoal-warm);
+  --color-olive-gray: var(--color-olive-gray);
+  --color-stone-gray: var(--color-stone-gray);
+  --color-warm-silver: var(--color-warm-silver);
+
+  --color-border-cream: var(--color-border-cream);
+  --color-border-warm: var(--color-border-warm);
+  --color-border-dark: var(--color-border-dark);
+  --color-ring-warm: var(--color-ring-warm);
+
+  --color-error: var(--color-error);
+  --color-focus: var(--color-focus);
+
+  /* Override default tokens so bg-background / text-foreground look Claude-y */
+  --color-background: var(--color-parchment);
+  --color-foreground: var(--color-near-black);
+
+  --font-serif: var(--font-serif);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+body {
+  background: var(--color-parchment);
+  color: var(--color-near-black);
+  font-family: var(--font-sans);
+  font-feature-settings: "calt";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Serif headings — weight 500 only, never bold */
+.font-serif,
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* Utility class for the editorial overline used across the design */
+.overline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--color-olive-gray);
+  letter-spacing: 0.08em;
+}
+
+.overline::before {
+  content: "";
+  display: inline-block;
+  width: 1.5rem;
+  height: 1px;
+  background: var(--color-terracotta);
+}
