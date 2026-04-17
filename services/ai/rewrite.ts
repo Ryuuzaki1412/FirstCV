@@ -11,6 +11,13 @@ interface RewriteInput {
   context?: Record<string, string>;
 }
 
+export interface RewriteResult {
+  block: RewriteBlock;
+  modelId: string;
+  tokensInput?: number;
+  tokensOutput?: number;
+}
+
 const SYSTEM_PROMPT = `你是一位资深的简历顾问，正在帮一位应届生或职场新人修改简历里的一段文字。
 
 规则（严格遵守）：
@@ -22,11 +29,14 @@ const SYSTEM_PROMPT = `你是一位资深的简历顾问，正在帮一位应届
 
 输出结构化 JSON，字段：original（原文）、rewritten（改写）、reasons（3-5 条改动说明）、preservedFacts（你特意保留下来的事实）。`;
 
-export async function rewriteBlock(input: RewriteInput): Promise<RewriteBlock> {
+export async function rewriteBlock(
+  input: RewriteInput,
+): Promise<RewriteResult> {
   const userPrompt = [
-    `目标岗位方向：${input.jobCategory}`,
+    `目标岗位方向：${input.jobCategory || "通用"}`,
     input.context
       ? `上下文：\n${Object.entries(input.context)
+          .filter(([, v]) => v)
           .map(([k, v]) => `- ${k}: ${v}`)
           .join("\n")}`
       : "",
@@ -45,5 +55,10 @@ export async function rewriteBlock(input: RewriteInput): Promise<RewriteBlock> {
     temperature: 0.4,
   });
 
-  return result.object;
+  return {
+    block: result.object,
+    modelId: result.response.modelId,
+    tokensInput: result.usage.inputTokens,
+    tokensOutput: result.usage.outputTokens,
+  };
 }

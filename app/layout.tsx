@@ -37,6 +37,7 @@ export default function RootLayout({
     <html
       lang="zh-CN"
       className={`${notoSerif.variable} ${notoSans.variable} h-full`}
+      suppressHydrationWarning
     >
       <body className="min-h-full bg-parchment text-near-black">{children}</body>
     </html>
