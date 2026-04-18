@@ -1,7 +1,12 @@
 import Link from "next/link";
+import { and, desc, eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { aiTasks } from "@/db/schema/aiTasks";
 import { getCurrentUser } from "@/lib/auth/dal";
-import { createResume, listResumes } from "@/app/actions/resumes";
+import { cloneResume, createResume, listResumes } from "@/app/actions/resumes";
 import { parseResumeContent } from "@/lib/resume/schema";
+import { AI_QUOTAS, getMonthlyAiUsage } from "@/lib/ai/quota";
+import { checkupResultSchema } from "@/services/ai/schemas";
 
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("zh-CN", {
@@ -17,10 +22,33 @@ export default async function DashboardPage() {
   const resumes = await listResumes();
   const greetingName = user.displayName ?? user.email.split("@")[0];
 
+  // Latest checkup per resume (group-latest in memory; N is small).
+  const checkupTasks = await db.query.aiTasks.findMany({
+    where: and(
+      eq(aiTasks.userId, user.id),
+      eq(aiTasks.taskType, "checkup"),
+      eq(aiTasks.status, "success"),
+    ),
+    orderBy: [desc(aiTasks.createdAt)],
+  });
+
+  const latestCheckupByResume = new Map<string, number>();
+  for (const t of checkupTasks) {
+    if (!t.resumeId || latestCheckupByResume.has(t.resumeId)) continue;
+    const parsed = checkupResultSchema.safeParse(t.outputJson);
+    if (parsed.success) {
+      latestCheckupByResume.set(t.resumeId, parsed.data.overallScore);
+    }
+  }
+
+  const { rewriteUsed, checkupUsed, uploadUsed } = await getMonthlyAiUsage(
+    user.id,
+  );
+
   return (
     <div className="mx-auto max-w-3xl">
       <p className="overline mb-5">Dashboard · 起点</p>
-      <h1 className="font-serif text-[34px] leading-tight text-near-black mb-3">
+      <h1 className="font-serif text-[26px] md:text-[34px] leading-tight text-near-black mb-3">
         {greetingName}，欢迎回来。
       </h1>
       <p className="text-[15px] text-olive-gray leading-relaxed max-w-xl mb-10">
@@ -31,14 +59,22 @@ export default async function DashboardPage() {
       <section className="mb-10">
         <div className="flex items-center justify-between mb-5">
           <h2 className="font-serif text-[20px] text-near-black">我的简历</h2>
-          <form action={createResume}>
-            <button
-              type="submit"
-              className="rounded-xl bg-terracotta text-ivory px-4 py-2 text-[14px] font-medium hover:bg-coral transition"
+          <div className="flex items-center gap-2">
+            <Link
+              href="/upload"
+              className="rounded-xl bg-warm-sand text-charcoal-warm px-4 py-2 text-[14px] hover:bg-border-cream transition"
             >
-              新建简历
-            </button>
-          </form>
+              上传 PDF
+            </Link>
+            <form action={createResume}>
+              <button
+                type="submit"
+                className="rounded-xl bg-terracotta text-ivory px-4 py-2 text-[14px] font-medium hover:bg-coral transition"
+              >
+                新建简历
+              </button>
+            </form>
+          </div>
         </div>
 
         {resumes.length === 0 ? (
@@ -55,13 +91,22 @@ export default async function DashboardPage() {
             {resumes.map((resume) => {
               const content = parseResumeContent(resume.currentVersionJson);
               const title =
-                content.basicInfo.name || content.basicInfo.headline || "未命名简历";
-              const subtitle = content.basicInfo.headline || "还没有写个人定位";
+                content.basicInfo.name ||
+                content.basicInfo.headline ||
+                "未命名简历";
+              const subtitle =
+                content.basicInfo.headline || "还没有写个人定位";
+              const targetRole = content.targetRole?.trim() || "";
+              const score = latestCheckupByResume.get(resume.id);
+              const cloneThis = cloneResume.bind(null, resume.id);
               return (
-                <li key={resume.id}>
+                <li
+                  key={resume.id}
+                  className="group rounded-2xl bg-ivory ring-1 ring-border-warm hover:ring-terracotta transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_32px_-20px_rgba(20,20,19,0.2)] flex items-center"
+                >
                   <Link
                     href={`/resume/${resume.id}`}
-                    className="block rounded-2xl bg-ivory ring-1 ring-border-warm px-6 py-5 hover:ring-terracotta transition"
+                    className="flex-1 min-w-0 px-6 py-5"
                   >
                     <div className="flex items-baseline justify-between gap-4 mb-1.5">
                       <p className="font-serif text-[17px] text-near-black truncate">
@@ -71,15 +116,69 @@ export default async function DashboardPage() {
                         {formatDate(resume.updatedAt)}
                       </span>
                     </div>
-                    <p className="text-[13.5px] text-olive-gray truncate">
-                      {subtitle}
-                    </p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <p className="text-[13.5px] text-olive-gray truncate min-w-0">
+                        {subtitle}
+                      </p>
+                      {targetRole ? (
+                        <span
+                          className="shrink-0 inline-flex items-center rounded-full ring-1 ring-border-warm bg-parchment px-2 py-0.5 text-[11px] text-charcoal-warm"
+                          title="目标岗位"
+                        >
+                          → {targetRole}
+                        </span>
+                      ) : null}
+                      {score !== undefined ? (
+                        <CheckupBadge score={score} />
+                      ) : null}
+                    </div>
                   </Link>
+                  <div className="shrink-0 mr-3 md:mr-4 flex items-center gap-1.5 md:opacity-0 md:group-hover:opacity-100 transition">
+                    <form action={cloneThis}>
+                      <button
+                        type="submit"
+                        className="rounded-lg bg-warm-sand px-3 py-1.5 text-[12px] text-charcoal-warm hover:bg-border-cream transition"
+                        title="克隆成新版本"
+                      >
+                        克隆
+                      </button>
+                    </form>
+                    <a
+                      href={`/api/resumes/${resume.id}/pdf`}
+                      className="rounded-lg bg-warm-sand px-3 py-1.5 text-[12px] text-charcoal-warm hover:bg-border-cream transition"
+                      title="导出 PDF"
+                    >
+                      PDF
+                    </a>
+                  </div>
                 </li>
               );
             })}
           </ul>
         )}
+      </section>
+
+      <section className="rounded-3xl bg-ivory ring-1 ring-border-warm px-8 py-6 mb-5">
+        <p className="text-[12.5px] text-stone-gray mb-3 tracking-wide">
+          本月 AI 用量
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 sm:gap-6">
+          <UsageStat
+            label="改写"
+            used={rewriteUsed}
+            quota={AI_QUOTAS.rewrite}
+          />
+          <UsageStat
+            label="体检"
+            used={checkupUsed}
+            quota={AI_QUOTAS.checkup}
+          />
+          <UsageStat
+            label="解析"
+            used={uploadUsed}
+            quota={AI_QUOTAS.upload}
+          />
+        </div>
       </section>
 
       <section className="rounded-3xl bg-ivory ring-1 ring-border-warm px-8 py-6">
@@ -93,6 +192,61 @@ export default async function DashboardPage() {
           套餐：{user.plan} · 语言：{user.locale}
         </p>
       </section>
+    </div>
+  );
+}
+
+function CheckupBadge({ score }: { score: number }) {
+  const tone =
+    score >= 80
+      ? "text-terracotta bg-terracotta/10 ring-terracotta/20"
+      : score >= 60
+        ? "text-charcoal-warm bg-warm-sand ring-border-warm"
+        : "text-olive-gray bg-border-cream ring-border-warm";
+  return (
+    <span
+      className={`shrink-0 inline-flex items-center gap-1 rounded-full ring-1 px-2 py-0.5 text-[11px] ${tone}`}
+      title="上次体检分数"
+    >
+      <span className="opacity-70">体检</span>
+      <span className="font-medium tabular-nums">{score}</span>
+    </span>
+  );
+}
+
+function UsageStat({
+  label,
+  used,
+  quota,
+}: {
+  label: string;
+  used: number;
+  quota: number;
+}) {
+  const pct = Math.min(100, (used / quota) * 100);
+  const remaining = Math.max(0, quota - used);
+  const low = remaining === 0;
+
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1.5">
+        <span className="text-[12.5px] text-olive-gray">{label}</span>
+        <span className="text-[12.5px] text-charcoal-warm tabular-nums">
+          {used} <span className="text-stone-gray">/ {quota}</span>
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-warm-sand overflow-hidden">
+        <div
+          className={
+            (low ? "bg-error" : "bg-terracotta") +
+            " h-full rounded-full transition-all duration-700"
+          }
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="mt-1.5 text-[11.5px] text-stone-gray">
+        {low ? "本月已用完，下月 1 号重置" : `本月还剩 ${remaining} 次`}
+      </p>
     </div>
   );
 }

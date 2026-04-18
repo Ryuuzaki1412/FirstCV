@@ -1,5 +1,6 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -11,6 +12,10 @@ import {
   resumeContentSchema,
   type ResumeContent,
 } from "@/lib/resume/schema";
+
+function generateShareToken() {
+  return randomBytes(16).toString("base64url");
+}
 
 export async function listResumes() {
   const { userId } = await verifySession();
@@ -75,4 +80,57 @@ export async function deleteResume(id: string) {
     .where(and(eq(resumes.id, id), eq(resumes.userId, userId)));
   revalidatePath("/dashboard");
   redirect("/dashboard");
+}
+
+export async function setShareEnabled(
+  id: string,
+  enabled: boolean,
+): Promise<{ ok: true; token: string | null } | { ok: false; error: string }> {
+  const { userId } = await verifySession();
+
+  const existing = await db.query.resumes.findFirst({
+    where: and(eq(resumes.id, id), eq(resumes.userId, userId)),
+    columns: { id: true, shareToken: true },
+  });
+  if (!existing) return { ok: false, error: "简历不存在或无权编辑" };
+
+  const token = enabled
+    ? existing.shareToken ?? generateShareToken()
+    : existing.shareToken;
+
+  await db
+    .update(resumes)
+    .set({
+      shareEnabled: enabled,
+      shareToken: token,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(resumes.id, id), eq(resumes.userId, userId)));
+
+  revalidatePath(`/resume/${id}`);
+  return { ok: true, token: enabled ? token : null };
+}
+
+export async function cloneResume(id: string) {
+  const { userId } = await verifySession();
+
+  const source = await db.query.resumes.findFirst({
+    where: and(eq(resumes.id, id), eq(resumes.userId, userId)),
+  });
+  if (!source) {
+    redirect("/dashboard");
+  }
+
+  const [created] = await db
+    .insert(resumes)
+    .values({
+      userId,
+      sourceType: "create",
+      parsedJson: source.parsedJson,
+      currentVersionJson: source.currentVersionJson,
+    })
+    .returning({ id: resumes.id });
+
+  revalidatePath("/dashboard");
+  redirect(`/resume/${created.id}`);
 }

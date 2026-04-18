@@ -2,11 +2,11 @@ import Link from "next/link";
 
 export function Hero() {
   return (
-    <section className="flex gap-18 px-14 py-24 items-center bg-parchment">
-      <div className="flex flex-col gap-8 flex-1">
+    <section className="flex flex-col md:flex-row gap-12 md:gap-18 px-6 md:px-14 py-16 md:py-24 items-center bg-parchment">
+      <div className="flex flex-col gap-6 md:gap-8 flex-1 w-full">
         <span className="overline">写给刚进入职场的你</span>
 
-        <h1 className="font-serif text-[64px] leading-[1.15] text-near-black tracking-tight">
+        <h1 className="font-serif text-[36px] md:text-[64px] leading-[1.15] text-near-black tracking-tight">
           一份像样的简历，
           <br />
           从说清楚你做过什么
@@ -14,40 +14,46 @@ export function Hero() {
           开始。
         </h1>
 
-        <p className="max-w-[580px] text-lg leading-[1.7] text-olive-gray">
+        <p className="max-w-[580px] text-base md:text-lg leading-[1.7] text-olive-gray">
           我们不是简历模板工具，也不是花哨的 AI 写手。
-          <br />
+          <span className="hidden md:inline">
+            <br />
+          </span>{" "}
           我们帮你把课程项目、毕业设计、校园经历里的那些「真正做过的事」，
-          <br />
+          <span className="hidden md:inline">
+            <br />
+          </span>{" "}
           用职业语言说清楚——让别人愿意约你聊一聊。
         </p>
 
-        <div className="flex items-center gap-3 pt-2">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-2">
           <Link
             href="/dashboard"
-            className="flex items-center gap-2 px-6 py-3.5 rounded-xl bg-terracotta text-ivory font-medium"
+            className="flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-terracotta text-ivory font-medium"
           >
             开始写我的第一份简历
             <span>→</span>
           </Link>
           <Link
             href="/upload"
-            className="flex items-center gap-2 px-5 py-3.5 rounded-xl bg-white text-near-black font-medium ring-1 ring-border-warm"
+            className="flex items-center justify-center gap-2 px-5 py-3.5 rounded-xl bg-white text-near-black font-medium ring-1 ring-border-warm"
           >
             我已经有一份，帮我改一改
           </Link>
         </div>
 
-        <div className="flex items-center gap-6 pt-4 text-[13px] text-stone-gray">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-4 text-[13px] text-stone-gray">
           <span>免费开始</span>
-          <span>·</span>
+          <span className="hidden sm:inline">·</span>
           <span>10 分钟完成首版</span>
-          <span>·</span>
+          <span className="hidden sm:inline">·</span>
           <span>无需信用卡</span>
         </div>
       </div>
 
-      <HeroArt />
+      <div className="hidden md:block">
+        <HeroArt />
+      </div>
     </section>
   );
 }
@@ -116,19 +122,25 @@ function HeroArt() {
 
       {/* decor note */}
       <div
-        className="absolute w-[180px] h-[60px] bg-terracotta rounded-3xl flex flex-col justify-center px-4"
-        style={{
-          left: 300,
-          top: 480,
-          transform: "rotate(5deg)",
-        }}
+        className="motion-float-gentle absolute w-[180px] h-[60px] bg-terracotta rounded-3xl flex flex-col justify-center px-4"
+        style={
+          {
+            left: 300,
+            top: 480,
+            "--float-rot": "5deg",
+            transform: "rotate(5deg)",
+          } as React.CSSProperties
+        }
       >
         <div className="text-xs font-medium text-ivory">AI 帮你改写</div>
         <div className="text-[10px] text-ivory/80">去学生气 · 动作词 · 成果</div>
       </div>
 
       {/* decor dot */}
-      <div className="absolute w-6 h-6 rounded-full bg-near-black left-[80px] top-[480px]" />
+      <div
+        className="motion-float-gentle absolute w-6 h-6 rounded-full bg-near-black left-[80px] top-[480px]"
+        style={{ animationDelay: "1.8s" }}
+      />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import {
+  boolean,
   jsonb,
   pgTable,
   text,
@@ -29,6 +30,9 @@ export const resumes = pgTable("resumes", {
   currentVersionJson: jsonb("current_version_json"),
 
   status: varchar("status", { length: 20 }).notNull().default("draft"),
+
+  shareToken: text("share_token").unique(),
+  shareEnabled: boolean("share_enabled").notNull().default(false),
 
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

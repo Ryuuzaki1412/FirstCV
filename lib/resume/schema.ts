@@ -45,12 +45,30 @@ export const skillGroupSchema = z.object({
 });
 export type SkillGroup = z.infer<typeof skillGroupSchema>;
 
+export const awardSchema = z.object({
+  id: z.string(),
+  title: z.string().max(120).default(""),
+  date: z.string().max(20).default(""),
+  issuer: z.string().max(80).default(""),
+});
+export type Award = z.infer<typeof awardSchema>;
+
+export const certificationSchema = z.object({
+  id: z.string(),
+  title: z.string().max(120).default(""),
+  date: z.string().max(20).default(""),
+  issuer: z.string().max(80).default(""),
+});
+export type Certification = z.infer<typeof certificationSchema>;
+
 export const resumeContentSchema = z.object({
   basicInfo: basicInfoSchema,
   targetRole: z.string().max(80).default(""),
   summary: z.string().max(600).default(""),
   experiences: z.array(experienceSchema).default([]),
   skills: z.array(skillGroupSchema).default([]),
+  awards: z.array(awardSchema).default([]),
+  certifications: z.array(certificationSchema).default([]),
 });
 export type ResumeContent = z.infer<typeof resumeContentSchema>;
 
@@ -72,6 +90,8 @@ export function emptyResumeContent(): ResumeContent {
     summary: "",
     experiences: [],
     skills: [],
+    awards: [],
+    certifications: [],
   };
 }
 

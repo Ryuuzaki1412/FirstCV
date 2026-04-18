@@ -11,23 +11,23 @@ export default async function AppLayout({
 
   return (
     <div className="min-h-screen bg-parchment">
-      <header className="flex items-center justify-between border-b border-border-warm px-8 py-5">
+      <header className="flex items-center justify-between gap-3 border-b border-border-warm px-4 md:px-8 py-4 md:py-5">
         <Link
           href="/dashboard"
-          className="flex items-center gap-2.5 text-near-black"
+          className="flex items-center gap-2 md:gap-2.5 text-near-black min-w-0"
         >
-          <span className="w-5 h-5 rounded-full bg-terracotta" />
-          <span className="font-serif text-[15px]">FirstCV · 札记</span>
+          <span className="w-5 h-5 rounded-full bg-terracotta shrink-0" />
+          <span className="font-serif text-[15px] truncate">FirstCV · 札记</span>
         </Link>
 
-        <div className="flex items-center gap-5 text-[13px]">
-          <span className="text-olive-gray">
+        <div className="flex items-center gap-3 md:gap-5 text-[13px] min-w-0">
+          <span className="text-olive-gray hidden sm:inline truncate max-w-[180px]">
             {user.displayName ?? user.email}
           </span>
           <form action={signOut}>
             <button
               type="submit"
-              className="rounded-lg bg-warm-sand px-3 py-1.5 text-charcoal-warm hover:bg-border-cream transition"
+              className="rounded-lg bg-warm-sand px-3 py-1.5 text-charcoal-warm hover:bg-border-cream transition shrink-0"
             >
               退出
             </button>
@@ -35,7 +35,7 @@ export default async function AppLayout({
         </div>
       </header>
 
-      <main className="px-8 py-10">{children}</main>
+      <main className="px-4 md:px-8 py-8 md:py-10">{children}</main>
     </div>
   );
 }
