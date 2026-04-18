@@ -10,6 +10,7 @@ import {
   type UseFormGetValues,
 } from "react-hook-form";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   cloneResume,
   deleteResume,
@@ -19,11 +20,17 @@ import {
   setShareEnabled,
   updateResume,
 } from "@/app/actions/resumes";
-import { rewriteHighlight, runResumeCheckup } from "@/app/actions/ai";
+import {
+  generateCoverLetter,
+  rewriteHighlight,
+  runResumeCheckup,
+  runResumeMatch,
+} from "@/app/actions/ai";
 import { clientEnv } from "@/lib/env";
 import type {
   CheckupIssue,
   CheckupResult,
+  MatchResult,
   RewriteBlock,
 } from "@/services/ai/schemas";
 import {
@@ -45,6 +52,20 @@ type CheckupState =
   | { kind: "idle" }
   | { kind: "running" }
   | { kind: "result"; data: CheckupResult; at: Date }
+  | { kind: "error"; message: string };
+
+type MatchState =
+  | { kind: "idle" }
+  | { kind: "input" }
+  | { kind: "running" }
+  | { kind: "result"; data: MatchResult }
+  | { kind: "error"; message: string };
+
+type CoverLetterState =
+  | { kind: "idle" }
+  | { kind: "input" }
+  | { kind: "running" }
+  | { kind: "result"; text: string }
   | { kind: "error"; message: string };
 
 type QuotaSnapshot = {
@@ -112,11 +133,17 @@ export function ResumeEditor({
   );
   const [panelOpen, setPanelOpen] = useState(false);
   const [quota, setQuota] = useState<QuotaSnapshot>(initialQuota);
+  const [match, setMatch] = useState<MatchState>({ kind: "idle" });
+  const [jobDescription, setJobDescription] = useState("");
+  const [cover, setCover] = useState<CoverLetterState>({ kind: "idle" });
+  const [coverJd, setCoverJd] = useState("");
+  const [coverExtra, setCoverExtra] = useState("");
 
   const canRewrite =
     quota.unlimited || quota.rewriteUsed < quota.rewriteLimit;
   const canCheckup =
     quota.unlimited || quota.checkupUsed < quota.checkupLimit;
+  const canMatch = quota.unlimited;
 
   const notifyRewriteResult = useCallback(
     (outcome: "success" | "quota-exceeded" | "other-error") => {
@@ -259,6 +286,59 @@ export function ResumeEditor({
     }
   };
 
+  const onCoverButtonClick = () => {
+    if (cover.kind === "running") return;
+    if (cover.kind === "idle") {
+      setCover({ kind: "input" });
+    } else {
+      setCover({ kind: "idle" });
+    }
+  };
+
+  const triggerCoverLetter = async () => {
+    if (saveState.kind === "dirty" || saveState.kind === "saving") {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      await flushSave();
+    }
+    setCover({ kind: "running" });
+    const response = await generateCoverLetter({
+      resumeId,
+      jobDescription: coverJd || undefined,
+      extra: coverExtra || undefined,
+    });
+    if (response.ok) {
+      setCover({ kind: "result", text: response.text });
+    } else {
+      setCover({ kind: "error", message: response.error });
+    }
+  };
+
+  const onMatchButtonClick = () => {
+    if (match.kind === "running") return;
+    if (match.kind === "idle") {
+      setMatch({ kind: "input" });
+    } else {
+      setMatch({ kind: "idle" });
+    }
+  };
+
+  const triggerMatch = async () => {
+    if (saveState.kind === "dirty" || saveState.kind === "saving") {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      await flushSave();
+    }
+    setMatch({ kind: "running" });
+    const response = await runResumeMatch({
+      resumeId,
+      jobDescription,
+    });
+    if (response.ok) {
+      setMatch({ kind: "result", data: response.result });
+    } else {
+      setMatch({ kind: "error", message: response.error });
+    }
+  };
+
   const onCheckupButtonClick = () => {
     if (checkup.kind === "running") return;
     if (checkup.kind === "result") {
@@ -320,12 +400,44 @@ export function ResumeEditor({
                   ? "本月已满"
                   : "体检"}
           </button>
-          <a
-            href={`/api/resumes/${resumeId}/pdf`}
-            className="rounded-lg bg-warm-sand px-3 py-1.5 text-[13px] text-charcoal-warm hover:bg-border-cream transition"
-          >
-            导出 PDF
-          </a>
+          {canMatch ? (
+            <>
+              <button
+                type="button"
+                onClick={onMatchButtonClick}
+                disabled={match.kind === "running"}
+                className="rounded-lg bg-warm-sand px-3 py-1.5 text-[13px] text-charcoal-warm hover:bg-border-cream disabled:opacity-60 disabled:cursor-wait transition"
+              >
+                {match.kind === "running" ? "匹配中…" : "匹配 JD"}
+              </button>
+              <button
+                type="button"
+                onClick={onCoverButtonClick}
+                disabled={cover.kind === "running"}
+                className="rounded-lg bg-warm-sand px-3 py-1.5 text-[13px] text-charcoal-warm hover:bg-border-cream disabled:opacity-60 disabled:cursor-wait transition"
+              >
+                {cover.kind === "running" ? "写信中…" : "求职信"}
+              </button>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/billing/start"
+                title="Pro 专属 · 点击升级"
+                className="rounded-lg bg-warm-sand/60 px-3 py-1.5 text-[13px] text-stone-gray hover:bg-warm-sand hover:text-charcoal-warm transition"
+              >
+                匹配 JD · Pro
+              </Link>
+              <Link
+                href="/billing/start"
+                title="Pro 专属 · 点击升级"
+                className="rounded-lg bg-warm-sand/60 px-3 py-1.5 text-[13px] text-stone-gray hover:bg-warm-sand hover:text-charcoal-warm transition"
+              >
+                求职信 · Pro
+              </Link>
+            </>
+          )}
+          <ExportDropdown resumeId={resumeId} canEnglish={canMatch} />
         </div>
       </header>
 
@@ -728,6 +840,30 @@ export function ResumeEditor({
           state={checkup}
           onDismiss={() => setPanelOpen(false)}
           onRerun={triggerCheckup}
+        />
+      )}
+
+      {match.kind !== "idle" && (
+        <MatchPanel
+          state={match}
+          jd={jobDescription}
+          onJdChange={setJobDescription}
+          onSubmit={triggerMatch}
+          onReset={() => setMatch({ kind: "input" })}
+          onDismiss={() => setMatch({ kind: "idle" })}
+        />
+      )}
+
+      {cover.kind !== "idle" && (
+        <CoverLetterPanel
+          state={cover}
+          jd={coverJd}
+          extra={coverExtra}
+          onJdChange={setCoverJd}
+          onExtraChange={setCoverExtra}
+          onSubmit={triggerCoverLetter}
+          onReset={() => setCover({ kind: "input" })}
+          onDismiss={() => setCover({ kind: "idle" })}
         />
       )}
 
@@ -1198,6 +1334,426 @@ function SaveIndicator({ state }: { state: SaveState }) {
 
 const inputClass =
   "w-full rounded-xl bg-white ring-1 ring-border-warm px-3 py-2 text-[14px] text-near-black placeholder:text-warm-silver focus:outline-none focus:ring-2 focus:ring-terracotta transition";
+
+function MatchPanel({
+  state,
+  jd,
+  onJdChange,
+  onSubmit,
+  onReset,
+  onDismiss,
+}: {
+  state: Exclude<MatchState, { kind: "idle" }>;
+  jd: string;
+  onJdChange: (v: string) => void;
+  onSubmit: () => void;
+  onReset: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <section className="motion-slide-in-soft rounded-3xl bg-ivory ring-1 ring-border-warm px-8 py-7">
+      <div className="flex items-start justify-between gap-4 mb-5">
+        <div>
+          <p className="overline mb-1.5">岗位匹配 · Pro</p>
+          <h2 className="font-serif text-[20px] text-near-black">
+            {state.kind === "input"
+              ? "贴一段 JD，对比一下"
+              : state.kind === "running"
+                ? "正在比对 JD 和简历…"
+                : state.kind === "result"
+                  ? `匹配度 · ${state.data.overallScore} 分`
+                  : "匹配失败"}
+          </h2>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {state.kind === "result" && (
+            <button
+              type="button"
+              onClick={onReset}
+              className="rounded-lg bg-warm-sand text-charcoal-warm px-3 py-1.5 text-[12.5px] hover:bg-border-cream transition"
+            >
+              换一份 JD
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="rounded-lg text-stone-gray px-2.5 py-1.5 text-[12.5px] hover:text-near-black transition"
+          >
+            收起
+          </button>
+        </div>
+      </div>
+
+      {state.kind === "input" && (
+        <div className="space-y-3">
+          <textarea
+            value={jd}
+            onChange={(e) => onJdChange(e.target.value)}
+            rows={8}
+            placeholder="把目标岗位的职位描述整段粘进来——职责、要求、加分项都带上。"
+            className="w-full rounded-xl bg-white ring-1 ring-border-warm px-4 py-3 text-[13.5px] text-near-black placeholder:text-warm-silver leading-relaxed focus:outline-none focus:ring-2 focus:ring-terracotta transition resize-y"
+          />
+          <div className="flex items-center justify-between">
+            <p className="text-[12px] text-stone-gray">
+              {jd.trim().length < 40
+                ? `还差 ${Math.max(0, 40 - jd.trim().length)} 个字开始分析`
+                : `${jd.trim().length} 字，够了`}
+            </p>
+            <button
+              type="button"
+              onClick={onSubmit}
+              disabled={jd.trim().length < 40}
+              className="rounded-xl bg-terracotta text-ivory px-5 py-2 text-[13.5px] font-medium hover:bg-coral disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              开始分析
+            </button>
+          </div>
+        </div>
+      )}
+
+      {state.kind === "running" && (
+        <p className="text-[13.5px] text-olive-gray leading-relaxed">
+          AI 正在抽取 JD 关键词、逐项核对简历，一般 10-20 秒。
+        </p>
+      )}
+
+      {state.kind === "error" && (
+        <p className="text-[13.5px] text-error leading-relaxed">
+          {state.message}
+        </p>
+      )}
+
+      {state.kind === "result" && <MatchReport data={state.data} />}
+    </section>
+  );
+}
+
+function MatchReport({ data }: { data: MatchResult }) {
+  return (
+    <div className="space-y-7">
+      <div className="grid grid-cols-[auto_1fr] gap-5 sm:gap-8 items-start">
+        <div className="flex flex-col items-center">
+          <span className="font-serif text-[44px] sm:text-[52px] leading-none text-near-black">
+            {data.overallScore}
+          </span>
+          <span className="text-[11px] text-stone-gray mt-1 tracking-wide">
+            匹配度 · 满分 100
+          </span>
+        </div>
+        <p className="text-[13.5px] sm:text-[14px] text-charcoal-warm leading-relaxed pt-1">
+          {data.summary}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        {([
+          ["skills", "技能"],
+          ["experience", "经历"],
+          ["tone", "语气"],
+        ] as const).map(([key, label]) => {
+          const score = data.dimensionScores[key];
+          return (
+            <div key={key}>
+              <div className="flex items-baseline justify-between mb-1.5">
+                <span className="text-[11.5px] text-olive-gray">{label}</span>
+                <span className="text-[13px] text-near-black tabular-nums">
+                  {score}
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-warm-sand overflow-hidden">
+                <div
+                  className="h-full bg-terracotta rounded-full transition-all"
+                  style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div>
+          <p className="text-[12.5px] text-olive-gray tracking-wide mb-2">
+            命中关键词（{data.matchedKeywords.length}）
+          </p>
+          {data.matchedKeywords.length === 0 ? (
+            <p className="text-[12.5px] text-stone-gray">（无）</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {data.matchedKeywords.map((k, i) => (
+                <span
+                  key={i}
+                  className="rounded-full bg-terracotta/10 text-terracotta ring-1 ring-terracotta/20 px-2.5 py-0.5 text-[12px]"
+                >
+                  {k}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <p className="text-[12.5px] text-olive-gray tracking-wide mb-2">
+            缺失关键词（{data.missingKeywords.length}）
+          </p>
+          {data.missingKeywords.length === 0 ? (
+            <p className="text-[12.5px] text-stone-gray">（无）</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {data.missingKeywords.map((k, i) => (
+                <span
+                  key={i}
+                  className="rounded-full bg-warm-sand text-charcoal-warm ring-1 ring-border-warm px-2.5 py-0.5 text-[12px]"
+                >
+                  {k}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {data.suggestions.length > 0 && (
+        <div>
+          <p className="text-[12.5px] text-olive-gray tracking-wide mb-3">
+            针对性建议（{data.suggestions.length}）
+          </p>
+          <ul className="space-y-3">
+            {data.suggestions.map((s, i) => (
+              <li
+                key={i}
+                className="rounded-2xl bg-white ring-1 ring-border-warm px-5 py-4"
+              >
+                <p className="font-serif text-[14.5px] text-near-black mb-1.5 leading-snug">
+                  {s.title}
+                </p>
+                <p className="text-[13px] text-olive-gray leading-relaxed">
+                  {s.detail}
+                </p>
+                {s.suggestedHighlight && (
+                  <div className="mt-3 rounded-xl bg-parchment px-4 py-2.5">
+                    <p className="text-[11px] text-terracotta tracking-wide mb-1">
+                      可以加进经历的一条
+                    </p>
+                    <p className="text-[13px] text-near-black leading-relaxed">
+                      {s.suggestedHighlight}
+                    </p>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExportDropdown({
+  resumeId,
+  canEnglish,
+}: {
+  resumeId: string;
+  canEnglish: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", onClick);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onClick);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        className="rounded-lg bg-warm-sand px-3 py-1.5 text-[13px] text-charcoal-warm hover:bg-border-cream transition"
+      >
+        导出 PDF ▾
+      </button>
+      {open && (
+        <div className="motion-slide-in-soft absolute right-0 top-full mt-1 min-w-[180px] rounded-xl bg-white ring-1 ring-border-warm shadow-[0_12px_32px_-16px_rgba(20,20,19,0.18)] py-1 z-30">
+          <a
+            href={`/api/resumes/${resumeId}/pdf`}
+            onClick={() => setOpen(false)}
+            className="block px-4 py-2 text-[13px] text-near-black hover:bg-parchment transition"
+          >
+            中文版
+          </a>
+          {canEnglish ? (
+            <a
+              href={`/api/resumes/${resumeId}/pdf?lang=en`}
+              onClick={() => setOpen(false)}
+              className="block px-4 py-2 text-[13px] text-near-black hover:bg-parchment transition"
+            >
+              English version
+            </a>
+          ) : (
+            <Link
+              href="/billing/start"
+              onClick={() => setOpen(false)}
+              className="block px-4 py-2 text-[13px] text-stone-gray hover:bg-parchment transition"
+            >
+              English · Pro 专属
+            </Link>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CoverLetterPanel({
+  state,
+  jd,
+  extra,
+  onJdChange,
+  onExtraChange,
+  onSubmit,
+  onReset,
+  onDismiss,
+}: {
+  state: Exclude<CoverLetterState, { kind: "idle" }>;
+  jd: string;
+  extra: string;
+  onJdChange: (v: string) => void;
+  onExtraChange: (v: string) => void;
+  onSubmit: () => void;
+  onReset: () => void;
+  onDismiss: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copyLetter = async () => {
+    if (state.kind !== "result") return;
+    try {
+      await navigator.clipboard.writeText(state.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked */
+    }
+  };
+
+  return (
+    <section className="motion-slide-in-soft rounded-3xl bg-ivory ring-1 ring-border-warm px-8 py-7">
+      <div className="flex items-start justify-between gap-4 mb-5">
+        <div>
+          <p className="overline mb-1.5">求职信 · Pro</p>
+          <h2 className="font-serif text-[20px] text-near-black">
+            {state.kind === "input"
+              ? "写一封打动 HR 的求职信"
+              : state.kind === "running"
+                ? "AI 正在把你的经历变成一封信…"
+                : state.kind === "result"
+                  ? "这是 AI 写的版本"
+                  : "求职信生成失败"}
+          </h2>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {state.kind === "result" && (
+            <>
+              <button
+                type="button"
+                onClick={copyLetter}
+                className="rounded-lg bg-terracotta text-ivory px-3 py-1.5 text-[12.5px] hover:bg-coral transition"
+              >
+                {copied ? "已复制" : "复制"}
+              </button>
+              <button
+                type="button"
+                onClick={onReset}
+                className="rounded-lg bg-warm-sand text-charcoal-warm px-3 py-1.5 text-[12.5px] hover:bg-border-cream transition"
+              >
+                再生成
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="rounded-lg text-stone-gray px-2.5 py-1.5 text-[12.5px] hover:text-near-black transition"
+          >
+            收起
+          </button>
+        </div>
+      </div>
+
+      {state.kind === "input" && (
+        <div className="space-y-3">
+          <div>
+            <label className="block text-[12px] text-olive-gray mb-1.5 tracking-wide">
+              岗位描述（可选，贴了信会更贴岗位）
+            </label>
+            <textarea
+              value={jd}
+              onChange={(e) => onJdChange(e.target.value)}
+              rows={5}
+              placeholder="把目标岗位的 JD 粘进来；不贴也行，AI 会按你的「目标岗位」写通用信。"
+              className="w-full rounded-xl bg-white ring-1 ring-border-warm px-4 py-3 text-[13.5px] text-near-black placeholder:text-warm-silver leading-relaxed focus:outline-none focus:ring-2 focus:ring-terracotta transition resize-y"
+            />
+          </div>
+          <div>
+            <label className="block text-[12px] text-olive-gray mb-1.5 tracking-wide">
+              补充说明（可选）
+            </label>
+            <textarea
+              value={extra}
+              onChange={(e) => onExtraChange(e.target.value)}
+              rows={2}
+              placeholder="例如「公司叫 Anthropic」「招聘经理叫 Karen」「我想强调我对 AI 安全的兴趣」"
+              className="w-full rounded-xl bg-white ring-1 ring-border-warm px-4 py-3 text-[13.5px] text-near-black placeholder:text-warm-silver leading-relaxed focus:outline-none focus:ring-2 focus:ring-terracotta transition resize-y"
+            />
+          </div>
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={onSubmit}
+              className="rounded-xl bg-terracotta text-ivory px-5 py-2 text-[13.5px] font-medium hover:bg-coral transition"
+            >
+              生成求职信
+            </button>
+          </div>
+        </div>
+      )}
+
+      {state.kind === "running" && (
+        <p className="text-[13.5px] text-olive-gray leading-relaxed">
+          AI 正在综合简历里最打动人的经历，组织成 300-400 字的信。10-20 秒。
+        </p>
+      )}
+
+      {state.kind === "error" && (
+        <p className="text-[13.5px] text-error leading-relaxed">
+          {state.message}
+        </p>
+      )}
+
+      {state.kind === "result" && (
+        <article className="rounded-2xl bg-white ring-1 ring-border-warm px-6 md:px-8 py-6">
+          <pre className="font-serif text-[14.5px] leading-[1.9] text-near-black whitespace-pre-wrap break-words">
+            {state.text}
+          </pre>
+        </article>
+      )}
+    </section>
+  );
+}
 
 function VersionsPanel({
   resumeId,

@@ -101,7 +101,7 @@ export const pricingSection = {
         "不限次 AI 改写 / 体检",
         "不限次 PDF 上传解析",
         "一份内容 · 多岗位版本",
-        "中文 / 英文双语导出（规划中）",
+        "中文 / 英文双语 PDF 导出",
         "优先邮件支持",
       ],
       ctaLabel: "升级到 Pro",

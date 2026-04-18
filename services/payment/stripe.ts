@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { env } from "@/lib/env";
+import { env } from "@/lib/env.server";
 import type {
   CheckoutInput,
   CheckoutResult,

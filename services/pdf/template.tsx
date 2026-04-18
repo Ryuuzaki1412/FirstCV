@@ -17,6 +17,41 @@ import {
   type SkillGroup,
 } from "@/lib/resume/schema";
 
+export type PdfLocale = "zh" | "en";
+
+const experienceKindLabelsEn: Record<ExperienceKind, string> = {
+  education: "Education",
+  project: "Projects",
+  internship: "Experience",
+};
+
+const sectionLabels = {
+  zh: {
+    targetRolePrefix: "目标方向",
+    summary: "个人简介",
+    skills: "技能",
+    awards: "获奖荣誉",
+    certifications: "证书",
+    fallbackCategory: "其他",
+    fallbackName: "未命名简历",
+    unnamedExperience: "（未命名）",
+  },
+  en: {
+    targetRolePrefix: "Target",
+    summary: "Summary",
+    skills: "Skills",
+    awards: "Awards",
+    certifications: "Certifications",
+    fallbackCategory: "Other",
+    fallbackName: "Untitled Resume",
+    unnamedExperience: "(Untitled)",
+  },
+} as const;
+
+function pickKindLabels(locale: PdfLocale) {
+  return locale === "en" ? experienceKindLabelsEn : experienceKindLabels;
+}
+
 // Register fonts once per process; later renders reuse the cache.
 const fontsDir = path.join(process.cwd(), "public/fonts");
 
@@ -265,7 +300,13 @@ function SectionHeader({ label }: { label: string }) {
   );
 }
 
-function ExperienceCard({ exp }: { exp: Experience }) {
+function ExperienceCard({
+  exp,
+  unnamedLabel,
+}: {
+  exp: Experience;
+  unnamedLabel: string;
+}) {
   const dates = [exp.startDate, exp.endDate].filter(Boolean).join(" – ");
   const meta = [exp.role, exp.org, exp.location].filter(Boolean).join(" · ");
   const highlights = exp.highlights.filter((h) => h.trim());
@@ -273,7 +314,7 @@ function ExperienceCard({ exp }: { exp: Experience }) {
   return (
     <View style={styles.expCard} wrap={false}>
       <View style={styles.expTitleRow}>
-        <Text style={styles.expTitle}>{exp.title || "（未命名）"}</Text>
+        <Text style={styles.expTitle}>{exp.title || unnamedLabel}</Text>
         {dates ? <Text style={styles.expDates}>{dates}</Text> : null}
       </View>
       {meta ? <Text style={styles.expMeta}>{meta}</Text> : null}
@@ -294,31 +335,47 @@ function ExperienceCard({ exp }: { exp: Experience }) {
 function ExperienceSection({
   kind,
   items,
+  locale,
 }: {
   kind: ExperienceKind;
   items: Experience[];
+  locale: PdfLocale;
 }) {
+  const labels = sectionLabels[locale];
   return (
     <View>
-      <SectionHeader label={experienceKindLabels[kind]} />
+      <SectionHeader label={pickKindLabels(locale)[kind]} />
       {items.map((exp) => (
-        <ExperienceCard key={exp.id} exp={exp} />
+        <ExperienceCard
+          key={exp.id}
+          exp={exp}
+          unnamedLabel={labels.unnamedExperience}
+        />
       ))}
     </View>
   );
 }
 
-function SkillsSection({ skills }: { skills: SkillGroup[] }) {
+function SkillsSection({
+  skills,
+  locale,
+}: {
+  skills: SkillGroup[];
+  locale: PdfLocale;
+}) {
+  const labels = sectionLabels[locale];
   const useful = skills.filter(
     (s) => s.category.trim() || s.items.some((i) => i.trim()),
   );
   if (useful.length === 0) return null;
   return (
     <View>
-      <SectionHeader label="技能" />
+      <SectionHeader label={labels.skills} />
       {useful.map((g) => (
         <View key={g.id} style={styles.twoColRow}>
-          <Text style={styles.colLabel}>{g.category || "其他"}</Text>
+          <Text style={styles.colLabel}>
+            {g.category || labels.fallbackCategory}
+          </Text>
           <Text style={[styles.colBodyText, { flex: 1 }]}>
             {g.items.filter((i) => i.trim()).join("  ·  ")}
           </Text>
@@ -328,12 +385,19 @@ function SkillsSection({ skills }: { skills: SkillGroup[] }) {
   );
 }
 
-function AwardsSection({ awards }: { awards: Award[] }) {
+function AwardsSection({
+  awards,
+  locale,
+}: {
+  awards: Award[];
+  locale: PdfLocale;
+}) {
+  const labels = sectionLabels[locale];
   const useful = awards.filter((a) => a.title.trim() || a.date.trim());
   if (useful.length === 0) return null;
   return (
     <View>
-      <SectionHeader label="获奖荣誉" />
+      <SectionHeader label={labels.awards} />
       {useful.map((a) => (
         <View key={a.id} style={styles.twoColRow} wrap={false}>
           <Text style={styles.colLabel}>{a.date}</Text>
@@ -349,12 +413,19 @@ function AwardsSection({ awards }: { awards: Award[] }) {
   );
 }
 
-function CertificationsSection({ certs }: { certs: Certification[] }) {
+function CertificationsSection({
+  certs,
+  locale,
+}: {
+  certs: Certification[];
+  locale: PdfLocale;
+}) {
+  const labels = sectionLabels[locale];
   const useful = certs.filter((x) => x.title.trim() || x.date.trim());
   if (useful.length === 0) return null;
   return (
     <View>
-      <SectionHeader label="证书" />
+      <SectionHeader label={labels.certifications} />
       {useful.map((cert) => {
         const title = cert.issuer.trim()
           ? `${cert.title} · ${cert.issuer}`
@@ -370,7 +441,13 @@ function CertificationsSection({ certs }: { certs: Certification[] }) {
   );
 }
 
-export function ResumeDocument({ content }: { content: ResumeContent }) {
+export function ResumeDocument({
+  content,
+  locale = "zh",
+}: {
+  content: ResumeContent;
+  locale?: PdfLocale;
+}) {
   const {
     basicInfo,
     targetRole,
@@ -381,7 +458,8 @@ export function ResumeDocument({ content }: { content: ResumeContent }) {
     certifications,
   } = content;
 
-  const displayName = basicInfo.name.trim() || "未命名简历";
+  const labels = sectionLabels[locale];
+  const displayName = basicInfo.name.trim() || labels.fallbackName;
   const groups: Record<ExperienceKind, Experience[]> = {
     education: [],
     project: [],
@@ -400,7 +478,7 @@ export function ResumeDocument({ content }: { content: ResumeContent }) {
         <View style={styles.headerBlock}>
           {targetRole.trim() ? (
             <Text style={styles.overline}>
-              目标方向 · {targetRole}
+              {labels.targetRolePrefix} · {targetRole}
             </Text>
           ) : null}
           <Text style={styles.name}>{displayName}</Text>
@@ -418,12 +496,17 @@ export function ResumeDocument({ content }: { content: ResumeContent }) {
         ) : null}
 
         {nonEmptyKinds.map((kind) => (
-          <ExperienceSection key={kind} kind={kind} items={groups[kind]} />
+          <ExperienceSection
+            key={kind}
+            kind={kind}
+            items={groups[kind]}
+            locale={locale}
+          />
         ))}
 
-        <SkillsSection skills={skills} />
-        <AwardsSection awards={awards} />
-        <CertificationsSection certs={certifications} />
+        <SkillsSection skills={skills} locale={locale} />
+        <AwardsSection awards={awards} locale={locale} />
+        <CertificationsSection certs={certifications} locale={locale} />
       </Page>
     </Document>
   );

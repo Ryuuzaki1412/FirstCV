@@ -42,3 +42,25 @@ export const checkupResultSchema = z.object({
   issues: z.array(checkupIssueSchema).max(10),
 });
 export type CheckupResult = z.infer<typeof checkupResultSchema>;
+
+export const matchSuggestionSchema = z.object({
+  title: z.string(),
+  detail: z.string(),
+  /** If the AI thinks the resume should add a specific bullet to bridge a gap. */
+  suggestedHighlight: z.string().optional(),
+});
+export type MatchSuggestion = z.infer<typeof matchSuggestionSchema>;
+
+export const matchResultSchema = z.object({
+  overallScore: z.number().min(0).max(100),
+  dimensionScores: z.object({
+    skills: z.number().min(0).max(100),
+    experience: z.number().min(0).max(100),
+    tone: z.number().min(0).max(100),
+  }),
+  matchedKeywords: z.array(z.string()).max(30),
+  missingKeywords: z.array(z.string()).max(30),
+  summary: z.string(),
+  suggestions: z.array(matchSuggestionSchema).max(8),
+});
+export type MatchResult = z.infer<typeof matchResultSchema>;

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { aiTasks } from "@/db/schema/aiTasks";
 import { resumes } from "@/db/schema/resumes";
@@ -9,8 +9,15 @@ import { parseResumeContent } from "@/lib/resume/schema";
 import { checkQuota, getMonthlyAiUsage, getUserPlan } from "@/lib/ai/quota";
 import { rewriteBlock } from "@/services/ai/rewrite";
 import { runCheckup } from "@/services/ai/checkup";
+import { runJobMatch } from "@/services/ai/match";
+import { runCoverLetter } from "@/services/ai/coverLetter";
+import { translateResumeToEnglish } from "@/services/ai/translate";
+import { isPaidPlan } from "@/config/plans";
+import { resumeContentSchema } from "@/lib/resume/schema";
+import type { ResumeContent } from "@/lib/resume/schema";
 import type {
   CheckupResult,
+  MatchResult,
   RewriteBlock,
 } from "@/services/ai/schemas";
 
@@ -159,6 +166,255 @@ export async function runResumeCheckup(
     return { ok: true, result: run.result, taskId: task.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : "AI 调用失败";
+    await db
+      .update(aiTasks)
+      .set({
+        status: "failed",
+        errorMessage: message,
+        updatedAt: new Date(),
+      })
+      .where(eq(aiTasks.id, task.id));
+    return { ok: false, error: message };
+  }
+}
+
+export type MatchResponse =
+  | { ok: true; result: MatchResult; taskId: string }
+  | { ok: false; error: string; requiresUpgrade?: boolean };
+
+export async function runResumeMatch(input: {
+  resumeId: string;
+  jobDescription: string;
+}): Promise<MatchResponse> {
+  const jd = input.jobDescription.trim();
+  if (jd.length < 40) {
+    return { ok: false, error: "岗位描述太短，贴整段 JD 效果最好" };
+  }
+
+  const { userId } = await verifySession();
+
+  const plan = await getUserPlan(userId);
+  if (!isPaidPlan(plan)) {
+    return {
+      ok: false,
+      error: "岗位匹配是 Pro 功能。升级后不限次使用。",
+      requiresUpgrade: true,
+    };
+  }
+
+  const resume = await db.query.resumes.findFirst({
+    where: and(
+      eq(resumes.id, input.resumeId),
+      eq(resumes.userId, userId),
+    ),
+  });
+  if (!resume) {
+    return { ok: false, error: "简历不存在或无权访问" };
+  }
+
+  const content = parseResumeContent(resume.currentVersionJson);
+
+  const [task] = await db
+    .insert(aiTasks)
+    .values({
+      userId,
+      resumeId: input.resumeId,
+      taskType: "match_score",
+      provider: "deepseek",
+      model: "pending",
+      inputJson: { jobDescription: jd.slice(0, 2000), resumeContent: content },
+      status: "running",
+    })
+    .returning({ id: aiTasks.id });
+
+  try {
+    const run = await runJobMatch({ jobDescription: jd, resumeJson: content });
+
+    await db
+      .update(aiTasks)
+      .set({
+        status: "success",
+        model: run.modelId,
+        outputJson: run.result,
+        tokensInput: run.tokensInput,
+        tokensOutput: run.tokensOutput,
+        updatedAt: new Date(),
+      })
+      .where(eq(aiTasks.id, task.id));
+
+    return { ok: true, result: run.result, taskId: task.id };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "AI 匹配失败";
+    await db
+      .update(aiTasks)
+      .set({
+        status: "failed",
+        errorMessage: message,
+        updatedAt: new Date(),
+      })
+      .where(eq(aiTasks.id, task.id));
+    return { ok: false, error: message };
+  }
+}
+
+export type CoverLetterResponse =
+  | { ok: true; text: string; taskId: string }
+  | { ok: false; error: string; requiresUpgrade?: boolean };
+
+export async function generateCoverLetter(input: {
+  resumeId: string;
+  jobDescription?: string;
+  extra?: string;
+}): Promise<CoverLetterResponse> {
+  const { userId } = await verifySession();
+
+  const plan = await getUserPlan(userId);
+  if (!isPaidPlan(plan)) {
+    return {
+      ok: false,
+      error: "求职信生成是 Pro 功能。升级后不限次使用。",
+      requiresUpgrade: true,
+    };
+  }
+
+  const resume = await db.query.resumes.findFirst({
+    where: and(
+      eq(resumes.id, input.resumeId),
+      eq(resumes.userId, userId),
+    ),
+  });
+  if (!resume) {
+    return { ok: false, error: "简历不存在或无权访问" };
+  }
+
+  const content = parseResumeContent(resume.currentVersionJson);
+
+  const [task] = await db
+    .insert(aiTasks)
+    .values({
+      userId,
+      resumeId: input.resumeId,
+      taskType: "cover_letter",
+      provider: "deepseek",
+      model: "pending",
+      inputJson: {
+        resumeContent: content,
+        jobDescription: input.jobDescription?.slice(0, 2000),
+        extra: input.extra?.slice(0, 500),
+      },
+      status: "running",
+    })
+    .returning({ id: aiTasks.id });
+
+  try {
+    const run = await runCoverLetter({
+      resumeJson: content,
+      jobDescription: input.jobDescription,
+      extra: input.extra,
+    });
+
+    await db
+      .update(aiTasks)
+      .set({
+        status: "success",
+        model: run.modelId,
+        outputJson: { text: run.text },
+        tokensInput: run.tokensInput,
+        tokensOutput: run.tokensOutput,
+        updatedAt: new Date(),
+      })
+      .where(eq(aiTasks.id, task.id));
+
+    return { ok: true, text: run.text, taskId: task.id };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "求职信生成失败";
+    await db
+      .update(aiTasks)
+      .set({
+        status: "failed",
+        errorMessage: message,
+        updatedAt: new Date(),
+      })
+      .where(eq(aiTasks.id, task.id));
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * Returns an English-translated copy of the resume content, cached in
+ * ai_tasks. Non-action helper used by the PDF route — not marked "use server"
+ * callable from a client, kept in-file because it shares the task-logging idiom.
+ */
+export async function getOrGenerateEnglishVersion(input: {
+  resumeId: string;
+  userId: string;
+}): Promise<
+  | { ok: true; content: ResumeContent }
+  | { ok: false; error: string; requiresUpgrade?: boolean }
+> {
+  const plan = await getUserPlan(input.userId);
+  if (!isPaidPlan(plan)) {
+    return {
+      ok: false,
+      error: "英文 PDF 是 Pro 功能",
+      requiresUpgrade: true,
+    };
+  }
+
+  const resume = await db.query.resumes.findFirst({
+    where: and(
+      eq(resumes.id, input.resumeId),
+      eq(resumes.userId, input.userId),
+    ),
+  });
+  if (!resume) return { ok: false, error: "简历不存在或无权访问" };
+
+  // Look for the most recent cached translation.
+  const cached = await db.query.aiTasks.findFirst({
+    where: and(
+      eq(aiTasks.resumeId, input.resumeId),
+      eq(aiTasks.taskType, "translate_resume"),
+      eq(aiTasks.status, "success"),
+    ),
+    orderBy: [desc(aiTasks.createdAt)],
+  });
+  if (cached && cached.createdAt >= resume.updatedAt) {
+    const parsed = resumeContentSchema.safeParse(cached.outputJson);
+    if (parsed.success) {
+      return { ok: true, content: parsed.data };
+    }
+  }
+
+  const content = parseResumeContent(resume.currentVersionJson);
+  const [task] = await db
+    .insert(aiTasks)
+    .values({
+      userId: input.userId,
+      resumeId: input.resumeId,
+      taskType: "translate_resume",
+      provider: "deepseek",
+      model: "pending",
+      inputJson: { resumeContent: content },
+      status: "running",
+    })
+    .returning({ id: aiTasks.id });
+
+  try {
+    const run = await translateResumeToEnglish(content);
+    await db
+      .update(aiTasks)
+      .set({
+        status: "success",
+        model: run.modelId,
+        outputJson: run.content,
+        tokensInput: run.tokensInput,
+        tokensOutput: run.tokensOutput,
+        updatedAt: new Date(),
+      })
+      .where(eq(aiTasks.id, task.id));
+    return { ok: true, content: run.content };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "翻译失败";
     await db
       .update(aiTasks)
       .set({

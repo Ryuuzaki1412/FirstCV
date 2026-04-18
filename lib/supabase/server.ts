@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { env } from "@/lib/env";
+import { env } from "@/lib/env.server";
 
 /**
  * Server-side Supabase client bound to the request's cookie jar.

@@ -48,15 +48,39 @@ export default async function ResumePage({
     at: v.createdAt.toISOString(),
   }));
 
+  const crumbTitle =
+    content.basicInfo.name ||
+    content.basicInfo.headline ||
+    "未命名简历";
+
   return (
     <div className="mx-auto max-w-4xl">
-      <Link
-        href="/dashboard"
-        className="inline-flex items-center gap-1.5 text-[13px] text-olive-gray hover:text-near-black transition mb-6"
-      >
-        <span>←</span>
-        <span>返回</span>
-      </Link>
+      <nav className="flex items-center justify-between gap-3 mb-6 text-[13px]">
+        <div className="flex items-center gap-1.5 text-olive-gray min-w-0">
+          <Link
+            href="/dashboard"
+            className="hover:text-near-black transition"
+          >
+            Dashboard
+          </Link>
+          <span className="text-stone-gray shrink-0">/</span>
+          <span className="truncate text-near-black">{crumbTitle}</span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Link
+            href="/upload"
+            className="rounded-lg bg-warm-sand text-charcoal-warm px-2.5 py-1 text-[12px] hover:bg-border-cream transition"
+          >
+            上传
+          </Link>
+          <Link
+            href="/account"
+            className="rounded-lg bg-warm-sand text-charcoal-warm px-2.5 py-1 text-[12px] hover:bg-border-cream transition"
+          >
+            账户
+          </Link>
+        </div>
+      </nav>
       <ResumeEditor
         resumeId={resume.id}
         initialContent={content}

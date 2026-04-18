@@ -21,9 +21,13 @@ export default async function AppLayout({
         </Link>
 
         <div className="flex items-center gap-3 md:gap-5 text-[13px] min-w-0">
-          <span className="text-olive-gray hidden sm:inline truncate max-w-[180px]">
+          <Link
+            href="/account"
+            className="text-olive-gray hover:text-near-black transition hidden sm:inline truncate max-w-[180px]"
+            title="账户设置"
+          >
             {user.displayName ?? user.email}
-          </span>
+          </Link>
           <form action={signOut}>
             <button
               type="submit"

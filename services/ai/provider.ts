@@ -1,7 +1,7 @@
 import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { LanguageModel } from "ai";
-import { env } from "@/lib/env";
+import { env } from "@/lib/env.server";
 
 /**
  * FirstCV's AI providers are provider-agnostic: call pickModel() with a

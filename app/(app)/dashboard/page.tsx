@@ -4,7 +4,12 @@ import { db } from "@/db/client";
 import { aiTasks } from "@/db/schema/aiTasks";
 import { getCurrentUser } from "@/lib/auth/dal";
 import { openBillingPortal } from "@/app/actions/billing";
-import { cloneResume, createResume, listResumes } from "@/app/actions/resumes";
+import {
+  cloneResume,
+  createExampleResume,
+  createResume,
+  listResumes,
+} from "@/app/actions/resumes";
 import { parseResumeContent } from "@/lib/resume/schema";
 import { AI_QUOTAS, getMonthlyAiUsage } from "@/lib/ai/quota";
 import { checkupResultSchema } from "@/services/ai/schemas";
@@ -84,9 +89,28 @@ export default async function DashboardPage() {
             <p className="font-serif text-[17px] text-near-black mb-2">
               还没有开始。
             </p>
-            <p className="text-[13.5px] text-olive-gray max-w-sm mx-auto leading-relaxed">
-              点击"新建简历"，从基本信息开始写起。你随时可以改、随时可以删。
+            <p className="text-[13.5px] text-olive-gray max-w-md mx-auto leading-relaxed mb-6">
+              从示例开始最快——我们预填了一份完整的应届生简历，照着改就行；
+              或者点"新建简历"从空白开始。
             </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+              <form action={createExampleResume}>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-terracotta text-ivory px-5 py-2.5 text-[13px] font-medium hover:bg-coral transition"
+                >
+                  从示例开始
+                </button>
+              </form>
+              <form action={createResume}>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-warm-sand text-charcoal-warm px-5 py-2.5 text-[13px] hover:bg-border-cream transition"
+                >
+                  从空白开始
+                </button>
+              </form>
+            </div>
           </div>
         ) : (
           <ul className="space-y-3">

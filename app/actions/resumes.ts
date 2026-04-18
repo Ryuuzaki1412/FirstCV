@@ -48,6 +48,22 @@ export async function createResume() {
   redirect(`/resume/${created.id}`);
 }
 
+export async function createExampleResume() {
+  const { userId } = await verifySession();
+  const { exampleResumeContent } = await import("@/content/examples/resume");
+  const [created] = await db
+    .insert(resumes)
+    .values({
+      userId,
+      sourceType: "create",
+      currentVersionJson: exampleResumeContent(),
+    })
+    .returning({ id: resumes.id });
+
+  revalidatePath("/dashboard");
+  redirect(`/resume/${created.id}`);
+}
+
 export async function updateResume(
   id: string,
   content: ResumeContent,
