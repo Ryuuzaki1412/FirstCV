@@ -15,15 +15,30 @@ export async function startProCheckout() {
 
   const user = await db.query.users.findFirst({
     where: eq(users.id, userId),
-    columns: { email: true, plan: true },
+    columns: { email: true, plan: true, stripeCustomerId: true },
   });
 
   if (user?.plan === "pro") {
-    // Already paid — no need to check out again.
     redirect("/billing/success");
   }
 
   const siteUrl = clientEnv.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
+  const provider = resolvePaymentProvider("stripe");
+
+  // Ensure Stripe customer exists & persist back so the Portal can see
+  // prior invoices on this account.
+  const { customerId } = await provider.ensureCustomer({
+    userId,
+    email: user?.email,
+    existingCustomerId: user?.stripeCustomerId,
+  });
+
+  if (customerId !== user?.stripeCustomerId) {
+    await db
+      .update(users)
+      .set({ stripeCustomerId: customerId, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  }
 
   const [order] = await db
     .insert(orders)
@@ -37,10 +52,10 @@ export async function startProCheckout() {
     })
     .returning({ id: orders.id });
 
-  const provider = resolvePaymentProvider("stripe");
   const result = await provider.createCheckout({
     userId,
     userEmail: user?.email,
+    customerId,
     plan: PRO_PLAN.interval,
     amountCents: PRO_PLAN.amountCents,
     currency: PRO_PLAN.currency,
@@ -58,4 +73,26 @@ export async function startProCheckout() {
     .where(eq(orders.id, order.id));
 
   redirect(result.checkoutUrl);
+}
+
+export async function openBillingPortal() {
+  const { userId } = await verifySession();
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { stripeCustomerId: true },
+  });
+
+  // User hasn't paid yet — no customer exists. Route them through checkout.
+  if (!user?.stripeCustomerId) {
+    redirect("/billing/start");
+  }
+
+  const siteUrl = clientEnv.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "");
+  const provider = resolvePaymentProvider("stripe");
+  const { url } = await provider.createPortalSession({
+    customerId: user.stripeCustomerId,
+    returnUrl: `${siteUrl}/dashboard`,
+  });
+
+  redirect(url);
 }

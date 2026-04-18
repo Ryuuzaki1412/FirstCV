@@ -13,6 +13,8 @@ export type Currency = "USD" | "CNY";
 export interface CheckoutInput {
   userId: string;
   userEmail?: string;
+  /** Stripe customer id (or equivalent) to attach this session to. */
+  customerId?: string;
   plan: Plan;
   amountCents: number;
   currency: Currency;
@@ -27,11 +29,40 @@ export interface CheckoutResult {
   checkoutUrl: string;
 }
 
+export interface EnsureCustomerInput {
+  userId: string;
+  email?: string;
+  /** If present, verify it's still valid; otherwise mint a new one. */
+  existingCustomerId?: string | null;
+}
+
+export interface EnsureCustomerResult {
+  customerId: string;
+}
+
+export interface PortalSessionInput {
+  customerId: string;
+  returnUrl: string;
+}
+
+export interface PortalSessionResult {
+  url: string;
+}
+
+export type WebhookEventKind =
+  | "checkout_paid"
+  | "checkout_failed"
+  | "subscription_canceled"
+  | "unhandled";
+
 export interface WebhookEvent {
-  providerOrderId: string;
+  kind: WebhookEventKind;
+  providerOrderId?: string;
   /** Our internal orders.id, echoed back via provider metadata. */
-  orderId: string;
-  status: "paid" | "failed" | "refunded";
+  orderId?: string;
+  /** Stripe customer id for subscription lifecycle events. */
+  customerId?: string;
+  status?: "paid" | "failed" | "refunded";
   paidAt?: Date;
   failureReason?: string;
   raw: unknown;
@@ -41,4 +72,6 @@ export interface PaymentProvider {
   readonly id: PaymentProviderId;
   createCheckout(input: CheckoutInput): Promise<CheckoutResult>;
   verifyAndParseWebhook(req: Request): Promise<WebhookEvent>;
+  ensureCustomer(input: EnsureCustomerInput): Promise<EnsureCustomerResult>;
+  createPortalSession(input: PortalSessionInput): Promise<PortalSessionResult>;
 }

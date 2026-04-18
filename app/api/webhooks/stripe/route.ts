@@ -22,57 +22,59 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!event.orderId) {
-    // Unknown/unhandled event type — acknowledge so Stripe doesn't retry forever.
-    return NextResponse.json({ received: true });
-  }
+  switch (event.kind) {
+    case "checkout_paid": {
+      if (!event.orderId) break;
+      const order = await db.query.orders.findFirst({
+        where: eq(orders.id, event.orderId),
+      });
+      if (!order) break;
 
-  const order = await db.query.orders.findFirst({
-    where: eq(orders.id, event.orderId),
-  });
-  if (!order) {
-    return NextResponse.json({ received: true });
-  }
+      await db
+        .update(orders)
+        .set({
+          status: "paid",
+          paidAt: event.paidAt ?? new Date(),
+          providerMetadata: event.raw as object,
+          updatedAt: new Date(),
+        })
+        .where(eq(orders.id, order.id));
 
-  if (event.status === "paid") {
-    await db
-      .update(orders)
-      .set({
-        status: "paid",
-        paidAt: event.paidAt ?? new Date(),
-        providerMetadata: event.raw as object,
-        updatedAt: new Date(),
-      })
-      .where(eq(orders.id, order.id));
+      await db
+        .update(users)
+        .set({ plan: "pro", updatedAt: new Date() })
+        .where(eq(users.id, order.userId));
+      break;
+    }
 
-    await db
-      .update(users)
-      .set({ plan: "pro", updatedAt: new Date() })
-      .where(eq(users.id, order.userId));
-  } else if (event.status === "failed") {
-    await db
-      .update(orders)
-      .set({
-        status: "failed",
-        failureReason: event.failureReason ?? null,
-        providerMetadata: event.raw as object,
-        updatedAt: new Date(),
-      })
-      .where(eq(orders.id, order.id));
-  } else if (event.status === "refunded") {
-    await db
-      .update(orders)
-      .set({
-        status: "refunded",
-        providerMetadata: event.raw as object,
-        updatedAt: new Date(),
-      })
-      .where(eq(orders.id, order.id));
+    case "checkout_failed": {
+      if (!event.orderId) break;
+      await db
+        .update(orders)
+        .set({
+          status: "failed",
+          failureReason: event.failureReason ?? null,
+          providerMetadata: event.raw as object,
+          updatedAt: new Date(),
+        })
+        .where(eq(orders.id, event.orderId));
+      break;
+    }
 
-    await db
-      .update(users)
-      .set({ plan: "free", updatedAt: new Date() })
-      .where(eq(users.id, order.userId));
+    case "subscription_canceled": {
+      // Downgrade the user tied to this Stripe customer.
+      if (!event.customerId) break;
+      await db
+        .update(users)
+        .set({ plan: "free", updatedAt: new Date() })
+        .where(eq(users.stripeCustomerId, event.customerId));
+      break;
+    }
+
+    case "unhandled":
+    default:
+      // Acknowledge unknown events so Stripe doesn't keep retrying.
+      break;
   }
 
   return NextResponse.json({ received: true });

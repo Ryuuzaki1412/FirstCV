@@ -3,7 +3,11 @@ import { env } from "@/lib/env";
 import type {
   CheckoutInput,
   CheckoutResult,
+  EnsureCustomerInput,
+  EnsureCustomerResult,
   PaymentProvider,
+  PortalSessionInput,
+  PortalSessionResult,
   WebhookEvent,
 } from "./types";
 
@@ -27,11 +31,34 @@ function productNameFor(plan: CheckoutInput["plan"]): string {
 export const stripeProvider: PaymentProvider = {
   id: "stripe",
 
+  async ensureCustomer(
+    input: EnsureCustomerInput,
+  ): Promise<EnsureCustomerResult> {
+    const s = assertStripe();
+
+    if (input.existingCustomerId) {
+      try {
+        const cust = await s.customers.retrieve(input.existingCustomerId);
+        if (!("deleted" in cust) || !cust.deleted) {
+          return { customerId: input.existingCustomerId };
+        }
+      } catch {
+        // fall through to create a new one
+      }
+    }
+
+    const cust = await s.customers.create({
+      email: input.email,
+      metadata: { userId: input.userId },
+    });
+    return { customerId: cust.id };
+  },
+
   async createCheckout(input: CheckoutInput): Promise<CheckoutResult> {
     const s = assertStripe();
-    const session = await s.checkout.sessions.create({
+
+    const sessionArgs: Stripe.Checkout.SessionCreateParams = {
       mode: input.plan === "monthly" ? "subscription" : "payment",
-      customer_email: input.userEmail,
       client_reference_id: input.userId,
       line_items: [
         {
@@ -51,7 +78,17 @@ export const stripeProvider: PaymentProvider = {
       },
       success_url: input.successUrl,
       cancel_url: input.cancelUrl,
-    });
+    };
+
+    // Prefer customer attachment (persistent history for the Billing Portal)
+    // over a one-off email on the session.
+    if (input.customerId) {
+      sessionArgs.customer = input.customerId;
+    } else if (input.userEmail) {
+      sessionArgs.customer_email = input.userEmail;
+    }
+
+    const session = await s.checkout.sessions.create(sessionArgs);
 
     if (!session.url) {
       throw new Error("Stripe did not return a checkout URL");
@@ -61,6 +98,17 @@ export const stripeProvider: PaymentProvider = {
       providerOrderId: session.id,
       checkoutUrl: session.url,
     };
+  },
+
+  async createPortalSession(
+    input: PortalSessionInput,
+  ): Promise<PortalSessionResult> {
+    const s = assertStripe();
+    const session = await s.billingPortal.sessions.create({
+      customer: input.customerId,
+      return_url: input.returnUrl,
+    });
+    return { url: session.url };
   },
 
   async verifyAndParseWebhook(req: Request): Promise<WebhookEvent> {
@@ -80,8 +128,13 @@ export const stripeProvider: PaymentProvider = {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
       return {
+        kind: "checkout_paid",
         providerOrderId: session.id,
         orderId: session.metadata?.orderId ?? "",
+        customerId:
+          typeof session.customer === "string"
+            ? session.customer
+            : session.customer?.id,
         status: "paid",
         paidAt: new Date(),
         raw: event,
@@ -91,6 +144,7 @@ export const stripeProvider: PaymentProvider = {
     if (event.type === "checkout.session.expired") {
       const session = event.data.object as Stripe.Checkout.Session;
       return {
+        kind: "checkout_failed",
         providerOrderId: session.id,
         orderId: session.metadata?.orderId ?? "",
         status: "failed",
@@ -99,13 +153,18 @@ export const stripeProvider: PaymentProvider = {
       };
     }
 
-    // Any other event types are a no-op for MVP; return a synthetic row
-    // so the webhook handler can ignore it gracefully.
+    if (event.type === "customer.subscription.deleted") {
+      const sub = event.data.object as Stripe.Subscription;
+      return {
+        kind: "subscription_canceled",
+        customerId:
+          typeof sub.customer === "string" ? sub.customer : sub.customer.id,
+        raw: event,
+      };
+    }
+
     return {
-      providerOrderId: "",
-      orderId: "",
-      status: "failed",
-      failureReason: `unhandled_event_${event.type}`,
+      kind: "unhandled",
       raw: event,
     };
   },

@@ -10,6 +10,7 @@ export const users = pgTable("users", {
   displayName: varchar("display_name", { length: 120 }),
   locale: varchar("locale", { length: 10 }).notNull().default("zh-CN"),
   plan: varchar("plan", { length: 20 }).notNull().default("free"),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 120 }).unique(),
   metadata: text("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

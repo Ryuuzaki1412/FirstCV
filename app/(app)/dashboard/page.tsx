@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { aiTasks } from "@/db/schema/aiTasks";
 import { getCurrentUser } from "@/lib/auth/dal";
+import { openBillingPortal } from "@/app/actions/billing";
 import { cloneResume, createResume, listResumes } from "@/app/actions/resumes";
 import { parseResumeContent } from "@/lib/resume/schema";
 import { AI_QUOTAS, getMonthlyAiUsage } from "@/lib/ai/quota";
@@ -193,15 +194,36 @@ export default async function DashboardPage() {
       </section>
 
       <section className="rounded-3xl bg-ivory ring-1 ring-border-warm px-8 py-6">
-        <p className="text-[12.5px] text-stone-gray mb-1 tracking-wide">
-          当前账户
-        </p>
-        <p className="font-serif text-[15px] text-near-black mb-0.5">
-          {user.email}
-        </p>
-        <p className="text-[12.5px] text-olive-gray">
-          套餐：{user.plan} · 语言：{user.locale}
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[12.5px] text-stone-gray mb-1 tracking-wide">
+              当前账户
+            </p>
+            <p className="font-serif text-[15px] text-near-black mb-0.5">
+              {user.email}
+            </p>
+            <p className="text-[12.5px] text-olive-gray">
+              套餐：{user.plan} · 语言：{user.locale}
+            </p>
+          </div>
+          {isPro ? (
+            <form action={openBillingPortal}>
+              <button
+                type="submit"
+                className="rounded-lg bg-warm-sand px-3 py-1.5 text-[12.5px] text-charcoal-warm hover:bg-border-cream transition"
+              >
+                管理订阅
+              </button>
+            </form>
+          ) : (
+            <Link
+              href="/billing/start"
+              className="rounded-lg bg-terracotta text-ivory px-3 py-1.5 text-[12.5px] hover:bg-coral transition whitespace-nowrap"
+            >
+              升级到 Pro
+            </Link>
+          )}
+        </div>
       </section>
     </div>
   );
