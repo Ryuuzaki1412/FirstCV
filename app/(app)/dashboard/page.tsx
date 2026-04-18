@@ -44,6 +44,7 @@ export default async function DashboardPage() {
   const { rewriteUsed, checkupUsed, uploadUsed } = await getMonthlyAiUsage(
     user.id,
   );
+  const isPro = user.plan === "pro";
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -159,24 +160,34 @@ export default async function DashboardPage() {
       </section>
 
       <section className="rounded-3xl bg-ivory ring-1 ring-border-warm px-8 py-6 mb-5">
-        <p className="text-[12.5px] text-stone-gray mb-3 tracking-wide">
-          本月 AI 用量
-        </p>
+        <div className="flex items-baseline justify-between mb-3">
+          <p className="text-[12.5px] text-stone-gray tracking-wide">
+            本月 AI 用量
+          </p>
+          {isPro ? (
+            <span className="text-[11px] text-terracotta tracking-wide">
+              Pro · 不限次
+            </span>
+          ) : null}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 sm:gap-6">
           <UsageStat
             label="改写"
             used={rewriteUsed}
             quota={AI_QUOTAS.rewrite}
+            unlimited={isPro}
           />
           <UsageStat
             label="体检"
             used={checkupUsed}
             quota={AI_QUOTAS.checkup}
+            unlimited={isPro}
           />
           <UsageStat
             label="解析"
             used={uploadUsed}
             quota={AI_QUOTAS.upload}
+            unlimited={isPro}
           />
         </div>
       </section>
@@ -218,11 +229,28 @@ function UsageStat({
   label,
   used,
   quota,
+  unlimited = false,
 }: {
   label: string;
   used: number;
   quota: number;
+  unlimited?: boolean;
 }) {
+  if (unlimited) {
+    return (
+      <div>
+        <div className="flex items-baseline justify-between mb-1.5">
+          <span className="text-[12.5px] text-olive-gray">{label}</span>
+          <span className="text-[12.5px] text-charcoal-warm tabular-nums">
+            {used} <span className="text-stone-gray">/ ∞</span>
+          </span>
+        </div>
+        <div className="h-1.5 rounded-full bg-terracotta/30" />
+        <p className="mt-1.5 text-[11.5px] text-stone-gray">无限次</p>
+      </div>
+    );
+  }
+
   const pct = Math.min(100, (used / quota) * 100);
   const remaining = Math.max(0, quota - used);
   const low = remaining === 0;

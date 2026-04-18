@@ -13,6 +13,9 @@ import { useRouter } from "next/navigation";
 import {
   cloneResume,
   deleteResume,
+  listResumeVersions,
+  restoreResumeVersion,
+  saveResumeVersion,
   setShareEnabled,
   updateResume,
 } from "@/app/actions/resumes";
@@ -49,11 +52,21 @@ type QuotaSnapshot = {
   rewriteLimit: number;
   checkupUsed: number;
   checkupLimit: number;
+  uploadUsed: number;
+  uploadLimit: number;
+  plan: string;
+  unlimited: boolean;
 };
 
 type ShareSnapshot = {
   enabled: boolean;
   token: string | null;
+};
+
+type VersionSummary = {
+  id: string;
+  label: string | null;
+  at: string;
 };
 
 const AUTOSAVE_DELAY_MS = 800;
@@ -75,12 +88,14 @@ export function ResumeEditor({
   initialCheckup,
   initialQuota,
   initialShare,
+  initialVersions,
 }: {
   resumeId: string;
   initialContent: ResumeContent;
   initialCheckup: { data: CheckupResult; at: string } | null;
   initialQuota: QuotaSnapshot;
   initialShare: ShareSnapshot;
+  initialVersions: VersionSummary[];
 }) {
   const router = useRouter();
   const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
@@ -98,8 +113,10 @@ export function ResumeEditor({
   const [panelOpen, setPanelOpen] = useState(false);
   const [quota, setQuota] = useState<QuotaSnapshot>(initialQuota);
 
-  const canRewrite = quota.rewriteUsed < quota.rewriteLimit;
-  const canCheckup = quota.checkupUsed < quota.checkupLimit;
+  const canRewrite =
+    quota.unlimited || quota.rewriteUsed < quota.rewriteLimit;
+  const canCheckup =
+    quota.unlimited || quota.checkupUsed < quota.checkupLimit;
 
   const notifyRewriteResult = useCallback(
     (outcome: "success" | "quota-exceeded" | "other-error") => {
@@ -123,6 +140,7 @@ export function ResumeEditor({
     watch,
     setValue,
     getValues,
+    reset,
   } = useForm<ResumeContent>({
     defaultValues: initialContent,
   });
@@ -715,6 +733,22 @@ export function ResumeEditor({
 
       <SharePanel resumeId={resumeId} initial={initialShare} />
 
+      <VersionsPanel
+        resumeId={resumeId}
+        initialVersions={initialVersions}
+        flushPendingSave={async () => {
+          if (saveState.kind === "dirty" || saveState.kind === "saving") {
+            if (timerRef.current) clearTimeout(timerRef.current);
+            await flushSave();
+          }
+        }}
+        onRestored={(content) => {
+          reset(content);
+          latestValuesRef.current = content;
+          setSaveState({ kind: "saved", at: new Date() });
+        }}
+      />
+
       <footer className="flex items-center justify-between pt-4 border-t border-border-warm">
         <div className="flex items-center gap-5">
           <button
@@ -1164,6 +1198,158 @@ function SaveIndicator({ state }: { state: SaveState }) {
 
 const inputClass =
   "w-full rounded-xl bg-white ring-1 ring-border-warm px-3 py-2 text-[14px] text-near-black placeholder:text-warm-silver focus:outline-none focus:ring-2 focus:ring-terracotta transition";
+
+function VersionsPanel({
+  resumeId,
+  initialVersions,
+  flushPendingSave,
+  onRestored,
+}: {
+  resumeId: string;
+  initialVersions: VersionSummary[];
+  flushPendingSave: () => Promise<void>;
+  onRestored: (content: ResumeContent) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [versions, setVersions] = useState<VersionSummary[]>(initialVersions);
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = async () => {
+    const rows = await listResumeVersions(resumeId);
+    setVersions(
+      rows.map((r) => ({
+        id: r.id,
+        label: r.label,
+        at:
+          r.createdAt instanceof Date
+            ? r.createdAt.toISOString()
+            : String(r.createdAt),
+      })),
+    );
+  };
+
+  const onSaveSnapshot = async () => {
+    setError(null);
+    setBusy("saving");
+    await flushPendingSave();
+    const res = await saveResumeVersion(resumeId, label || undefined);
+    if (res.ok) {
+      setLabel("");
+      await refresh();
+    } else {
+      setError(res.error);
+    }
+    setBusy(null);
+  };
+
+  const onRestore = async (versionId: string) => {
+    if (!confirm("恢复后当前内容会被替换，当前版本会自动保存进历史。继续吗？")) {
+      return;
+    }
+    setError(null);
+    setBusy(versionId);
+    await flushPendingSave();
+    const res = await restoreResumeVersion(versionId);
+    if (res.ok) {
+      onRestored(res.content);
+      await refresh();
+    } else {
+      setError(res.error);
+    }
+    setBusy(null);
+  };
+
+  return (
+    <section className="rounded-3xl bg-ivory ring-1 ring-border-warm px-6 md:px-8 py-6">
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        className="w-full flex items-start justify-between gap-4 text-left"
+      >
+        <div>
+          <p className="overline mb-1.5">版本历史</p>
+          <h2 className="font-serif text-[17px] text-near-black">
+            想改之前先存一版
+          </h2>
+          <p className="mt-1 text-[12.5px] text-stone-gray">
+            {versions.length > 0
+              ? `已有 ${versions.length} 个快照`
+              : "还没有快照，随时点开保存一份"}
+          </p>
+        </div>
+        <span className="text-[12px] text-stone-gray shrink-0 pt-2">
+          {open ? "收起 −" : "展开 +"}
+        </span>
+      </button>
+
+      {open && (
+        <div className="motion-slide-in-soft mt-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="版本标签（可选，如「投前端版」）"
+              maxLength={80}
+              className={inputClass + " flex-1"}
+            />
+            <button
+              type="button"
+              onClick={onSaveSnapshot}
+              disabled={busy === "saving"}
+              className="rounded-lg bg-terracotta text-ivory px-4 py-2 text-[13px] hover:bg-coral disabled:opacity-60 transition"
+            >
+              {busy === "saving" ? "保存中…" : "保存为版本"}
+            </button>
+          </div>
+
+          {versions.length === 0 ? (
+            <p className="text-[12.5px] text-stone-gray leading-relaxed">
+              保存后这里会列出所有快照。点「恢复」把内容回到那个时间点——
+              恢复前当前内容会自动存一份，所以随时可以撤回来。
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {versions.map((v) => (
+                <li
+                  key={v.id}
+                  className="rounded-xl bg-white ring-1 ring-border-warm px-4 py-3 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-serif text-[14px] text-near-black truncate">
+                      {v.label || "未命名快照"}
+                    </p>
+                    <p className="text-[11.5px] text-stone-gray mt-0.5">
+                      {new Intl.DateTimeFormat("zh-CN", {
+                        month: "numeric",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }).format(new Date(v.at))}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onRestore(v.id)}
+                    disabled={busy === v.id}
+                    className="shrink-0 rounded-lg bg-warm-sand text-charcoal-warm px-3 py-1.5 text-[12px] hover:bg-border-cream disabled:opacity-60 transition"
+                  >
+                    {busy === v.id ? "恢复中…" : "恢复"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {error ? (
+            <p className="text-[12.5px] text-error">{error}</p>
+          ) : null}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function SharePanel({
   resumeId,

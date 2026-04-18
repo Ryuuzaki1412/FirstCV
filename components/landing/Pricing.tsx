@@ -58,22 +58,17 @@ export function Pricing() {
                 ))}
               </ul>
 
-              {tier.ctaHref ? (
-                <Link
-                  href={tier.ctaHref}
-                  className="press-damp w-full text-center rounded-xl bg-terracotta text-ivory py-3 text-[14px] font-medium hover:bg-coral transition"
-                >
-                  {tier.ctaLabel}
-                </Link>
-              ) : (
-                <button
-                  type="button"
-                  disabled
-                  className="w-full rounded-xl bg-warm-sand text-charcoal-warm py-3 text-[14px] font-medium cursor-not-allowed"
-                >
-                  {tier.ctaLabel}
-                </button>
-              )}
+              <Link
+                href={tier.ctaHref}
+                className={
+                  "press-damp w-full text-center rounded-xl py-3 text-[14px] font-medium transition " +
+                  (tier.highlighted
+                    ? "bg-terracotta text-ivory hover:bg-coral"
+                    : "bg-near-black text-ivory hover:bg-dark-warm")
+                }
+              >
+                {tier.ctaLabel}
+              </Link>
             </FadeIn>
           ))}
         </div>

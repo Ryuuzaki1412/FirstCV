@@ -3,6 +3,8 @@ import "server-only";
 import { and, eq, gte } from "drizzle-orm";
 import { db } from "@/db/client";
 import { aiTasks } from "@/db/schema/aiTasks";
+import { users } from "@/db/schema/users";
+import { isPaidPlan } from "@/config/plans";
 
 export const AI_QUOTAS = {
   rewrite: 30,
@@ -22,6 +24,9 @@ export type AiQuotaSnapshot = AiUsage & {
   rewriteLimit: number;
   checkupLimit: number;
   uploadLimit: number;
+  plan: string;
+  /** true when quota enforcement is off (paid tiers). */
+  unlimited: boolean;
 };
 
 const kindToColumn: Record<AiTaskKind, string> = {
@@ -58,12 +63,21 @@ export async function getMonthlyAiUsage(userId: string): Promise<AiUsage> {
 export async function getAiQuotaSnapshot(
   userId: string,
 ): Promise<AiQuotaSnapshot> {
-  const usage = await getMonthlyAiUsage(userId);
+  const [usage, user] = await Promise.all([
+    getMonthlyAiUsage(userId),
+    db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: { plan: true },
+    }),
+  ]);
+  const plan = user?.plan ?? "free";
   return {
     ...usage,
     rewriteLimit: AI_QUOTAS.rewrite,
     checkupLimit: AI_QUOTAS.checkup,
     uploadLimit: AI_QUOTAS.upload,
+    plan,
+    unlimited: isPaidPlan(plan),
   };
 }
 
@@ -76,7 +90,10 @@ const quotaLabel: Record<AiTaskKind, string> = {
 export function checkQuota(
   usage: AiUsage,
   kind: AiTaskKind,
+  plan: string = "free",
 ): { ok: true } | { ok: false; error: string } {
+  if (isPaidPlan(plan)) return { ok: true };
+
   const used =
     kind === "rewrite"
       ? usage.rewriteUsed
@@ -87,8 +104,17 @@ export function checkQuota(
   if (used >= limit) {
     return {
       ok: false,
-      error: `本月 AI ${quotaLabel[kind]}已用完（${used} / ${limit}）。下月 1 号重置。`,
+      error: `本月 AI ${quotaLabel[kind]}已用完（${used} / ${limit}）。升级 Pro 立即解锁，或等下月 1 号重置。`,
     };
   }
   return { ok: true };
+}
+
+/** Convenience — fetches plan internally. Server actions reach for this. */
+export async function getUserPlan(userId: string): Promise<string> {
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { plan: true },
+  });
+  return user?.plan ?? "free";
 }

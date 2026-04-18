@@ -5,10 +5,11 @@ import { and, desc, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db/client";
-import { resumes } from "@/db/schema/resumes";
+import { resumes, resumeVersions } from "@/db/schema/resumes";
 import { verifySession } from "@/lib/auth/dal";
 import {
   emptyResumeContent,
+  parseResumeContent,
   resumeContentSchema,
   type ResumeContent,
 } from "@/lib/resume/schema";
@@ -109,6 +110,98 @@ export async function setShareEnabled(
 
   revalidatePath(`/resume/${id}`);
   return { ok: true, token: enabled ? token : null };
+}
+
+export async function saveResumeVersion(
+  id: string,
+  label?: string,
+): Promise<{ ok: true; versionId: string } | { ok: false; error: string }> {
+  const { userId } = await verifySession();
+
+  const source = await db.query.resumes.findFirst({
+    where: and(eq(resumes.id, id), eq(resumes.userId, userId)),
+    columns: { id: true, currentVersionJson: true },
+  });
+  if (!source || !source.currentVersionJson) {
+    return { ok: false, error: "简历不存在或内容为空" };
+  }
+
+  const [created] = await db
+    .insert(resumeVersions)
+    .values({
+      resumeId: source.id,
+      contentJson: source.currentVersionJson,
+      label: label?.trim() || null,
+    })
+    .returning({ id: resumeVersions.id });
+
+  revalidatePath(`/resume/${id}`);
+  return { ok: true, versionId: created.id };
+}
+
+export async function listResumeVersions(id: string) {
+  const { userId } = await verifySession();
+  // Ownership check — leaving the join to drizzle would be nicer, but a
+  // findFirst on resumes is clearer and cheap.
+  const owned = await db.query.resumes.findFirst({
+    where: and(eq(resumes.id, id), eq(resumes.userId, userId)),
+    columns: { id: true },
+  });
+  if (!owned) return [];
+
+  return db.query.resumeVersions.findMany({
+    where: eq(resumeVersions.resumeId, id),
+    orderBy: [desc(resumeVersions.createdAt)],
+    columns: { id: true, label: true, createdAt: true },
+  });
+}
+
+export async function restoreResumeVersion(
+  versionId: string,
+): Promise<
+  | { ok: true; resumeId: string; content: ResumeContent }
+  | { ok: false; error: string }
+> {
+  const { userId } = await verifySession();
+
+  const version = await db.query.resumeVersions.findFirst({
+    where: eq(resumeVersions.id, versionId),
+  });
+  if (!version) return { ok: false, error: "版本不存在" };
+
+  // Confirm user owns the parent resume.
+  const parent = await db.query.resumes.findFirst({
+    where: and(
+      eq(resumes.id, version.resumeId),
+      eq(resumes.userId, userId),
+    ),
+    columns: { id: true, currentVersionJson: true },
+  });
+  if (!parent) return { ok: false, error: "无权恢复此版本" };
+
+  // Snapshot the existing state before overwriting, so restore is reversible.
+  if (parent.currentVersionJson) {
+    await db.insert(resumeVersions).values({
+      resumeId: parent.id,
+      contentJson: parent.currentVersionJson,
+      label: "恢复前自动保存",
+    });
+  }
+
+  await db
+    .update(resumes)
+    .set({
+      currentVersionJson: version.contentJson,
+      updatedAt: new Date(),
+    })
+    .where(eq(resumes.id, parent.id));
+
+  revalidatePath(`/resume/${parent.id}`);
+  return {
+    ok: true,
+    resumeId: parent.id,
+    content: parseResumeContent(version.contentJson),
+  };
 }
 
 export async function cloneResume(id: string) {

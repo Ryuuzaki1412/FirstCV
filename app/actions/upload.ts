@@ -6,7 +6,7 @@ import { aiTasks } from "@/db/schema/aiTasks";
 import { resumes } from "@/db/schema/resumes";
 import { db } from "@/db/client";
 import { verifySession } from "@/lib/auth/dal";
-import { checkQuota, getMonthlyAiUsage } from "@/lib/ai/quota";
+import { checkQuota, getMonthlyAiUsage, getUserPlan } from "@/lib/ai/quota";
 import { parseResumeFromText } from "@/services/ai/parse";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -33,8 +33,11 @@ export async function parseResumeUpload(
 
   const { userId } = await verifySession();
 
-  const usage = await getMonthlyAiUsage(userId);
-  const quota = checkQuota(usage, "upload");
+  const [usage, plan] = await Promise.all([
+    getMonthlyAiUsage(userId),
+    getUserPlan(userId),
+  ]);
+  const quota = checkQuota(usage, "upload", plan);
   if (!quota.ok) {
     return { ok: false, error: quota.error };
   }

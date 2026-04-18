@@ -6,7 +6,7 @@ import { aiTasks } from "@/db/schema/aiTasks";
 import { resumes } from "@/db/schema/resumes";
 import { verifySession } from "@/lib/auth/dal";
 import { parseResumeContent } from "@/lib/resume/schema";
-import { checkQuota, getMonthlyAiUsage } from "@/lib/ai/quota";
+import { checkQuota, getMonthlyAiUsage, getUserPlan } from "@/lib/ai/quota";
 import { rewriteBlock } from "@/services/ai/rewrite";
 import { runCheckup } from "@/services/ai/checkup";
 import type {
@@ -36,8 +36,11 @@ export async function rewriteHighlight(input: {
     return { ok: false, error: "简历不存在或无权访问" };
   }
 
-  const usage = await getMonthlyAiUsage(userId);
-  const quota = checkQuota(usage, "rewrite");
+  const [usage, plan] = await Promise.all([
+    getMonthlyAiUsage(userId),
+    getUserPlan(userId),
+  ]);
+  const quota = checkQuota(usage, "rewrite", plan);
   if (!quota.ok) {
     return { ok: false, error: quota.error };
   }
@@ -113,8 +116,11 @@ export async function runResumeCheckup(
     return { ok: false, error: "简历不存在或无权访问" };
   }
 
-  const usage = await getMonthlyAiUsage(userId);
-  const quota = checkQuota(usage, "checkup");
+  const [usage, plan] = await Promise.all([
+    getMonthlyAiUsage(userId),
+    getUserPlan(userId),
+  ]);
+  const quota = checkQuota(usage, "checkup", plan);
   if (!quota.ok) {
     return { ok: false, error: quota.error };
   }

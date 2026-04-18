@@ -3,7 +3,7 @@ import Link from "next/link";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { aiTasks } from "@/db/schema/aiTasks";
-import { getResume } from "@/app/actions/resumes";
+import { getResume, listResumeVersions } from "@/app/actions/resumes";
 import { verifySession } from "@/lib/auth/dal";
 import { getAiQuotaSnapshot } from "@/lib/ai/quota";
 import { parseResumeContent } from "@/lib/resume/schema";
@@ -41,6 +41,13 @@ export default async function ResumePage({
       ? { data: parsed.data, at: latest.createdAt.toISOString() }
       : null;
 
+  const versionRows = await listResumeVersions(resume.id);
+  const initialVersions = versionRows.map((v) => ({
+    id: v.id,
+    label: v.label,
+    at: v.createdAt.toISOString(),
+  }));
+
   return (
     <div className="mx-auto max-w-4xl">
       <Link
@@ -59,6 +66,7 @@ export default async function ResumePage({
           enabled: resume.shareEnabled,
           token: resume.shareToken,
         }}
+        initialVersions={initialVersions}
       />
     </div>
   );
